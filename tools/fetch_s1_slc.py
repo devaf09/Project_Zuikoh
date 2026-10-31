@@ -73,16 +73,27 @@ def download(url: str, out, tok: str):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--region", required=True)
-    ap.add_argument("--lon", type=float, required=True)
-    ap.add_argument("--lat", type=float, required=True)
+    ap.add_argument("--lon", type=float)
+    ap.add_argument("--lat", type=float)
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
     ap.add_argument("--max", type=int, default=1)
+    ap.add_argument("--cr-csv", help="点の代わりに、この CSV（lat・lon の列）の全部の点を含む場面を探す（角の反射板の一覧など）")
+    ap.add_argument("--path", type=int, help="この軌道の番号（相対軌道）の場面だけ")
     a = ap.parse_args()
 
-    res = asf.search(platform=asf.PLATFORM.SENTINEL1, processingLevel="SLC", intersectsWith=f"POINT({a.lon} {a.lat})",
-                     start=a.start, end=a.end, maxResults=50)
-    res = sorted(res, key=lambda r: r.properties["startTime"], reverse=True)[:a.max]
+    if a.cr_csv:                                              # 一覧の点ごとに探して、場面を重ならないように集める
+        import csv
+        pts = [(float(r["lon"]), float(r["lat"])) for r in csv.DictReader(open(a.cr_csv, encoding="utf-8"))]
+    else:
+        pts = [(a.lon, a.lat)]
+    found = {}
+    for lon, lat in pts:
+        for r in asf.search(platform=asf.PLATFORM.SENTINEL1, processingLevel="SLC", intersectsWith=f"POINT({lon} {lat})",
+                            start=a.start, end=a.end, maxResults=100):
+            if a.path is None or int(r.properties["pathNumber"]) == a.path:
+                found[r.properties["sceneName"]] = r
+    res = sorted(found.values(), key=lambda r: r.properties["startTime"], reverse=True)[:a.max]
     gb = sum(float(r.properties["bytes"]) for r in res) / 1e9
     print(f"{len(res)} 場面、合計 {gb:.2f} GB")
     if gb > 20:
