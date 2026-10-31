@@ -40,6 +40,9 @@ def main():
     ap = argparse.ArgumentParser(description="est_01e: 数日付の SLC でタンクの点の動きの形")
     ap.add_argument("--region", default="cushing")
     ap.add_argument("--min-db", type=float, default=20.0)
+    ap.add_argument("--own-radius", action="store_true",
+                    help="タンクごとの探す幅を、そのタンクの半径（斜めの距離に直した分）+ 3 画素に絞る（となりのタンクの点を混ぜない）")
+    ap.add_argument("--theta-deg", type=float, default=39.0)
     ap.add_argument("--seed", type=int, default=0, help="乱数は使わない（決まりとして持つ）")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--out", default=os.path.join(ROOT, "results", "est01e.txt"))
@@ -64,6 +67,22 @@ def main():
     rows, cols = np.array(rows) - r0, np.array(cols) - c0
     sr, sc, st = register(pr, rows, cols)
     rows, cols = rows + sr, cols + sc
+    if a.own_radius:                                          # 距離の向きは 1 画素の細かさで位置合わせをやり直す（4 画素の刻み = 約 9 m の誤差を減らす）
+        best = (-1e9, 0)
+        for dcol in range(-4, 5):
+            sc2 = 0.0
+            for r, c in zip(rows, cols + dcol):
+                r, c = int(r), int(c)
+                if 3 <= r < pr.shape[0] - 3 and 3 <= c < pr.shape[1] - 3:
+                    sc2 += np.log1p(pr[r - 3:r + 4, c - 3:c + 4] / bg).sum()
+            best = max(best, (sc2, dcol))
+        cols = cols + best[1]
+        sc += best[1]
+    radius_px = []
+    for f in tanks["features"]:                               # タンクの半径 → 斜めの距離の画素（地面の距離 × sinθ / 2.33 m）
+        xs = [q[0] for q in f["geometry"]["coordinates"][0]]
+        r_m = (max(xs) - min(xs)) / 2 * 111320 * np.cos(np.radians(np.mean(lat)))
+        radius_px.append(r_m * np.sin(np.radians(a.theta_deg)) / PIX_R)
 
     # 基準の日付で点を選ぶ: タンクの中の強い点と、対照（タンクから離れた強い点）
     pts = []                                                  # (タンクの番号 or −1, 行, 列, dB, 中心からの距離の向きの位置 m)
@@ -73,11 +92,12 @@ def main():
         if not (8 <= r < pr.shape[0] - 8 and 40 <= c < pr.shape[1] - 40):
             continue
         zone[max(0, r - 10):r + 11, max(0, c - 60):c + 61] = True
-        sub = pr[r - 3:r + 4, c - 30:c + 31]
+        h = int(radius_px[ti]) + 3 if a.own_radius else 30
+        sub = pr[r - 3:r + 4, c - h:c + h + 1]
         prof = 10 * np.log10(sub.max(axis=0) / bg + 1e-12)
         for p in find_peaks(prof, height=a.min_db, distance=3)[0]:
             rr = r - 3 + int(np.argmax(sub[:, p]))
-            pts.append((ti, rr, c - 30 + p, prof[p], (p - 30) * PIX_R))
+            pts.append((ti, rr, c - h + p, prof[p], (p - h) * PIX_R))
     loc = (pr == ndimage.maximum_filter(pr, size=(5, 9))) & (10 * np.log10(pr / bg + 1e-12) >= a.min_db) & ~zone
     for rr, cc in zip(*np.nonzero(loc)):
         if 8 <= rr < pr.shape[0] - 8 and 20 <= cc < pr.shape[1] - 20:
@@ -107,14 +127,14 @@ def main():
     near = tank & (pts[:, 4] < 0)
     far = tank & (pts[:, 4] > 0)
     frac = lambda m: round(float((sd[m] > thr).mean()), 3) if m.any() else None
-    rec = dict(exp="est01e", dates=dates, n_dates=len(zips), tank_shift=[int(sr), int(sc)], min_db=a.min_db,
+    rec = dict(exp="est01e", own_radius=a.own_radius, dates=dates, n_dates=len(zips), tank_shift=[int(sr), int(sc)], min_db=a.min_db,
                n_control=int(ctrl.sum()), n_near=int(near.sum()), n_far=int(far.sum()),
                sd_m_control_median=round(float(np.median(sd[ctrl])), 3), sd_m_near_median=round(float(np.median(sd[near])), 3),
                sd_m_far_median=round(float(np.median(sd[far])), 3), move_threshold_m=round(float(thr), 3),
                frac_moving_control=frac(ctrl), frac_moving_near=frac(near), frac_moving_far=frac(far))
     with open(a.out, "a", encoding="utf-8") as fo:
         fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    np.savetxt(d / "cache" / "est01e_points.csv", np.column_stack([pts, sd, pos]), delimiter=",",
+    np.savetxt(d / "cache" / f"est01e_points{'_own' if a.own_radius else ''}.csv", np.column_stack([pts, sd, pos]), delimiter=",",
                header="tank,row,col,db,offset_m,sd_m," + ",".join(dates), fmt="%.4f")
     print(json.dumps(rec, ensure_ascii=False))
 
