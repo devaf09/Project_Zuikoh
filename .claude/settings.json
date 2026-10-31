@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(/restricted/**)",
+      "Read(//d/AI_git/Project_Zuikoh/restricted/**)",
+      "Read(//f/AI_git/Project_Zuikoh_Data_Files/restricted/**)",
+      "Edit(/restricted/**)",
+      "Edit(//f/AI_git/Project_Zuikoh_Data_Files/restricted/**)",
+      "Bash(*restricted*)",
+      "PowerShell(*restricted*)"
+    ]
+  }
+}

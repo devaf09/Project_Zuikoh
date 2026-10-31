@@ -1,0 +1,3 @@
+# 設定の見本。config.local.toml に写して使う（config.local.toml は git に入れない）。
+# データの置き場（大きなデータはリポジトリの外に置く）
+data_dir = "F:/AI_git/Project_Zuikoh_Data_Files"

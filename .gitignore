@@ -1,0 +1,40 @@
+# データ・学習済みの重み（大きい・ライセンスの都合で上げない。データの正本は F: の置き場）
+data/
+*.tif
+*.tiff
+*.SAFE
+*.zip
+*.nc
+*.h5
+*.pt
+*.pth
+results/models/
+
+# 写真（顔・ナンバーが写るので上げない。ぼかした図だけ docs/images/ に置く）
+*.jpg
+*.jpeg
+*.heic
+*.HEIC
+*.JPG
+
+# 持ち主向けのもの・作業用の設定（.claude/settings.json だけは入れる）
+session_records/
+.claude/*
+!.claude/settings.json
+docs/*_prompt.md
+config.local.toml
+
+# Claude Code に送らないものの置き場（9 章。中身は開かない）
+restricted/
+
+# 秘密
+.env
+*.key
+*.pem
+
+# Python の作業ファイル
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.log
