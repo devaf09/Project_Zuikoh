@@ -14,6 +14,7 @@
       cnn_amp  小さな CNN（振幅だけ）
       feat     手で作った特徴（明るい順の上位 10 画素の明るさ・平均）のロジスティック回帰（学習が軽い定番）
       scr      明るさの強さ（背景との比 dB）だけでしきい値（明るさをそろえる前の値。参考）
+    水増し（--subbands K、持ち主の案）: 距離の向きの帯域を K 個に分けた「少し違う色のフレーム」を訓練に混ぜる（学習する条件だけ）
 指標: テストの正解率、反射板の再現率と適合率、取り違えの表（真 × 予測）、学習する数、時間
 結果: results/exp02.txt（1 回 = 1 行 JSON）。図は tools/fig_exp02.py
 実行: CUDA_VISIBLE_DEVICES= .venv/Scripts/python experiments/exp02_cr_chips.py --model sin --split cr --seed 0
@@ -53,6 +54,26 @@ def load(split, seed):
         last = dates[-max(1, len(dates) // 4):]            # 新しい 1/4 の日付をテストに
         te = torch.tensor([d in last for d in D["date"]])
     return X[~te], y[~te], X[te], y[te], D["scr_db"][~te], D["scr_db"][te]
+
+
+def subband(X, K, rng):
+    """持ち主の案（2026-10-31）の水増し: 距離の向きの帯域を K 個に分け、でたらめに選んだ 1 つ（または全部）だけを残す。
+
+    SAR の像は、少しずつ違う電波の色（周波数）で見た像を重ねたもの。帯域の一部だけを残すと、
+    「少し違う色で、少しぼけて見た同じ物」の像になる（物理的に正しい別のフレーム）。格子の大きさは変えない（周波数の側で外を 0 にする）。
+    k = 0 は全部の帯域（元のまま）。
+    """
+    n, _, W = X.shape
+    F_ = torch.fft.fftshift(torch.fft.fft(X, dim=-1), dim=-1)
+    edges = torch.linspace(0, W, K + 1).round().long()
+    k = torch.randint(0, K + 1, (n,), generator=rng)
+    mask = torch.ones(n, 1, W)
+    for i in range(n):
+        if k[i] > 0:
+            mask[i] = 0
+            mask[i, :, edges[k[i] - 1]:edges[k[i]]] = 1
+    out = torch.fft.ifft(torch.fft.ifftshift(F_ * mask, dim=-1), dim=-1)
+    return out / (out.abs().amax((-2, -1), keepdim=True) + 1e-12)
 
 
 def crop(X, rng=None):
@@ -119,6 +140,7 @@ def main():
     ap.add_argument("--plates", type=int, default=8)
     ap.add_argument("--patches", type=int, default=8)
     ap.add_argument("--steps", type=int, default=3000)
+    ap.add_argument("--subbands", type=int, default=0, help="0 なら水増しなし。K なら距離の向きの帯域を K 個に分けて水増し（持ち主の案）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--out", default=os.path.join(ROOT, "results", "exp02.txt"))
@@ -162,7 +184,8 @@ def main():
         w = (w.sum() / (3 * w)).to(a.device)                 # 種類の数の違いをならす重み
         for step in range(a.steps):
             idx = torch.randint(len(Xtr), (256,), generator=rng)
-            z = crop(Xtr[idx], rng)
+            xb = subband(Xtr[idx], a.subbands, rng) if a.subbands > 1 else Xtr[idx]
+            z = crop(xb, rng)
             loss = F.cross_entropy(net(to_input(a.model, z).to(a.device)), ytr[idx].to(a.device), weight=w)
             opt.zero_grad()
             loss.backward()
