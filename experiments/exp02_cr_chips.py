@@ -76,6 +76,30 @@ def subband(X, K, rng):
     return out / (out.abs().amax((-2, -1), keepdim=True) + 1e-12)
 
 
+def lowpass(X, n):
+    """分解能を 1/n に落とす（周波数の側で、真ん中の 1/n の帯域だけ残す。格子の大きさは変えない）。10 m 相当の粗い画像の代わり。"""
+    if n <= 1:
+        return X
+    F_ = torch.fft.fftshift(torch.fft.fft2(X), dim=(-2, -1))
+    H, W = X.shape[-2:]
+    m = torch.zeros(H, W)
+    hh, hw = max(1, H // (2 * n)), max(1, W // (2 * n))
+    m[H // 2 - hh:H // 2 + hh + 1, W // 2 - hw:W // 2 + hw + 1] = 1
+    out = torch.fft.ifft2(torch.fft.ifftshift(F_ * m, dim=(-2, -1)))
+    return out / (out.abs().amax((-2, -1), keepdim=True) + 1e-12)
+
+
+def mask_center(z, r):
+    """切り出しの真ん中の半径 r 画素（距離の向き。進行方向は画素が約 6 倍長いので r/6、最低 1 行）を 0 にする（周りだけを見せる）。"""
+    if r <= 0:
+        return z
+    H, W = z.shape[-2:]
+    yy, xx = torch.meshgrid(torch.arange(H) - H // 2, torch.arange(W) - W // 2, indexing="ij")
+    ry = max(1.0, r / 6)
+    m = ((yy / ry) ** 2 + (xx / r) ** 2) > 1
+    return z * m
+
+
 def crop(X, rng=None):
     """48 × 48 → 32 × 32。rng があればでたらめにずらし（±8 画素）、全体の位相を回す。なければ真ん中。"""
     if rng is None:
@@ -102,6 +126,18 @@ class SmallCNN(nn.Module):
         x = F.max_pool2d(F.relu(self.c1(x)), 2)
         x = F.relu(self.c2(x))
         return self.fc(x.amax((-2, -1)))
+
+
+def prep(z, a):
+    """隠す・粗くするの前処理（実験03）。
+
+    隠したあと、残った周りの最大の振幅で割り直す。割り直さないと「隠した真ん中がとても明るかった」ことが
+    周りの明るさの低さとして漏れてしまう（形ではなく、そろえ方のくせで当たってしまう）。
+    """
+    if a.mask <= 0:
+        return z
+    m = mask_center(z, a.mask)
+    return m / (m.abs().amax((-2, -1), keepdim=True) + 1e-12)
 
 
 def to_input(model, z):
@@ -140,6 +176,8 @@ def main():
     ap.add_argument("--plates", type=int, default=8)
     ap.add_argument("--patches", type=int, default=8)
     ap.add_argument("--steps", type=int, default=3000)
+    ap.add_argument("--mask", type=float, default=0, help="実験03（持ち主の問い 2）: 真ん中の半径（距離の向きの画素）を隠し、周りだけで当てる。ずらしはしない")
+    ap.add_argument("--lowpass", type=int, default=1, help="分解能を 1/n に落とす（10 m 相当の粗い画像の代わり）")
     ap.add_argument("--subbands", type=int, default=0, help="0 なら水増しなし。K なら距離の向きの帯域を K 個に分けて水増し（持ち主の案）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")
@@ -148,6 +186,8 @@ def main():
     torch.manual_seed(a.seed)
     torch.set_num_threads(4)
     Xtr, ytr, Xte, yte, str_, ste = load(a.split, a.seed)
+    Xtr, Xte = lowpass(Xtr, a.lowpass), lowpass(Xte, a.lowpass)
+    jitter = a.mask <= 0                                    # 隠すときは、反射板が真ん中にあるようにずらさない
     rng = torch.Generator().manual_seed(a.seed)
     t0 = time.time()
     params = 0
@@ -160,7 +200,7 @@ def main():
         pred = (ste >= best[1]).long() + (ste >= best[2]).long()
         params = 2
     elif a.model == "feat":
-        f_tr, f_te = features(crop(Xtr)), features(crop(Xte))
+        f_tr, f_te = features(prep(crop(Xtr), a)), features(prep(crop(Xte), a))
         mu, sd = f_tr.mean(0), f_tr.std(0) + 1e-6
         lin = nn.Linear(f_tr.shape[1], 3)
         opt = torch.optim.Adam(lin.parameters(), lr=0.05)
@@ -185,16 +225,16 @@ def main():
         for step in range(a.steps):
             idx = torch.randint(len(Xtr), (256,), generator=rng)
             xb = subband(Xtr[idx], a.subbands, rng) if a.subbands > 1 else Xtr[idx]
-            z = crop(xb, rng)
+            z = prep(crop(xb, rng) if jitter else crop(xb) * torch.polar(torch.ones(len(xb), 1, 1), torch.rand(len(xb), 1, 1, generator=rng) * 6.2832), a)
             loss = F.cross_entropy(net(to_input(a.model, z).to(a.device)), ytr[idx].to(a.device), weight=w)
             opt.zero_grad()
             loss.backward()
             opt.step()
             sch.step()
         with torch.no_grad():
-            pred = torch.cat([net(to_input(a.model, crop(Xte[i:i + 512])).to(a.device)).argmax(1).cpu()
+            pred = torch.cat([net(to_input(a.model, prep(crop(Xte[i:i + 512]), a)).to(a.device)).argmax(1).cpu()
                               for i in range(0, len(Xte), 512)])
-    rec = dict(vars(a), exp="02", params=int(params), train_s=round(time.time() - t0, 1),
+    rec = dict(vars(a), exp="03" if (a.mask > 0 or a.lowpass > 1) else "02", params=int(params), train_s=round(time.time() - t0, 1),
                n_train=len(ytr), n_test=len(yte), test_cr=TEST_CR if a.split == "cr" else None,
                version="vendor sn2_parts_2d 0.11.0", torch=torch.__version__, region="oklahoma", **report(pred, yte))
     with open(a.out, "a", encoding="utf-8") as f:
