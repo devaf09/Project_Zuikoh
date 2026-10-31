@@ -36,7 +36,8 @@
 - vendor: SinWave2D 0.3.0（Project_Metasequoia 811494d）、SN2-Parts-2D 0.11.0（5238c39）。バイト単位で同じ（vendor/README.md）
 - 読んだだけで書き換えていないプロジェクト: Sin-CNN2、Project_Metasequoia、SN2-Parts-2D、Sin-CNN3、SinCrest
 - **restricted/ を止める仕組み**: .claude/settings.json の permissions.deny に、restricted/ を読む Read・Edit と、"restricted" を含む Bash・PowerShell のコマンドを入れた。効くかの確かめ:
-  - 2026-10-31（立ち上げのセッション）: **まだ確かめられていない**。立ち上げのセッションは作業フォルダが D:\AI_git\TmpFiles のままで、この settings.json が読み込まれない。試しのファイル（中身はただの合言葉）を Read・PowerShell で開けてしまい、Bash は場所が違って開けなかった。つまり「このフォルダ以外で始めたセッションには、この仕組みは効かない」
+  - 2026-10-31（立ち上げのセッション）: **まだ確かめられていない**。立ち上げのセッションは作業フォルダが D:\AI_git\TmpFiles のままで、この settings.json が読み込まれない。試しのファイル（中身はただの合言葉）を Read・PowerShell で開けてしまい、Bash は場所が違って開けなかった。つまり「このフォルダ以外で始めたセッションには、この仕組みは効かない」。
+    途中で作業フォルダを D:\AI_git\Project_Zuikoh に移してから試し直しても、Read・Bash の cat・PowerShell の Get-Content の 4 通りすべてで開けた（対照のファイルも読めた）。設定がセッションの開始時にしか読まれないためか、書き方の誤りかは、まだ分けられていない
   - 確かめ方（D:\AI_git\Project_Zuikoh で始めたセッションで最初にする）: `restricted/deny_test.txt`・`F:/AI_git/Project_Zuikoh_Data_Files/restricted/deny_test.txt` を Read・Bash の cat・PowerShell の Get-Content で開こうとし、すべて断られること。対照として `F:/AI_git/Project_Zuikoh_Data_Files/cache/open_test.txt` は読めること。結果をここに書く
   - 注意: 本物の「送らないもの」は、この確かめが済むまで restricted/ に置かないでほしい（持ち主へ）
 
