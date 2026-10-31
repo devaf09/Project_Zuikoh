@@ -21,13 +21,20 @@ from zuikoh.config import data_dir  # noqa: E402
 
 plt.rcParams["font.family"] = ["Yu Gothic", "MS Gothic", "Meiryo", "sans-serif"]
 NAMES = {"scr": "明るさの強さだけ", "feat": "手で作った特徴", "cnn_amp": "小さな CNN（振幅）", "cnn": "小さな CNN（複素数）",
-         "sin_amp": "Sin の板（振幅）", "sin": "Sin の板（複素数）"}
+         "sin_amp": "Sin の板（振幅）", "sin": "Sin の板（複素数）",
+         "cnn_rc": "CNN（複素数・傾き除去）", "sin_rc": "Sin の板（複素数・傾き除去）"}
 
 
 def main():
     recs = [json.loads(x) for x in open(os.path.join(ROOT, "results", "exp02.txt"), encoding="utf-8")]
     # 同じ (条件, 分け方, seed) が 2 回あるとき（CPU で途中まで回した分と GPU で回し直した分）は、新しいほうだけを使う
     recs = list({(r["model"], r["split"], r["seed"]): r for r in recs}.values())
+    rc = os.path.join(ROOT, "results", "exp02r.txt")             # 位相の傾きを取り除いた確かめ（sweep02r.sh）
+    if os.path.exists(rc):
+        for x in open(rc, encoding="utf-8"):
+            r = json.loads(x)
+            r["model"] = r["model"] + "_rc"
+            recs.append(r)
     D = torch.load(data_dir() / "processed" / "cr_chips" / "chips.pt", weights_only=False)
     fig = plt.figure(figsize=(15, 8))
     gs = fig.add_gridspec(3, 6, height_ratios=[1, 1, 1.6])
