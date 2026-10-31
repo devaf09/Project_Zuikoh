@@ -108,7 +108,10 @@ def crop(X, rng=None):
     n = len(X)
     oy = torch.randint(0, X.shape[-2] - L + 1, (n,), generator=rng)
     ox = torch.randint(0, X.shape[-1] - L + 1, (n,), generator=rng)
-    out = torch.stack([X[i, oy[i]:oy[i] + L, ox[i]:ox[i] + L] for i in range(n)])
+    ar = torch.arange(L)
+    ri = (oy[:, None] + ar[None, :])[:, :, None]            # (n, L, 1) 行の番号
+    ci = (ox[:, None] + ar[None, :])[:, None, :]            # (n, 1, L) 列の番号
+    out = X[torch.arange(n)[:, None, None], ri, ci]           # 1 回の添え字で切り出す（1 個ずつの繰り返しより速い）
     ph = torch.rand(n, 1, 1, generator=rng) * 2 * math.pi
     return out * torch.polar(torch.ones_like(ph), ph)
 
