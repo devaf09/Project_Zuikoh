@@ -11,7 +11,7 @@
 ## Claude Code に送らないもの（持ち主の方針）
 - 置き場 `restricted/`（リポジトリ直下）と `F:\AI_git\Project_Zuikoh_Data_Files\restricted\` の中身は開かない・表示しない（Read、cat・head・grep、画像の表示、どれもしない）
 - ファイルの名前と大きさを数えるのも、持ち主が許したときだけ。restricted/ を読むプログラムは持ち主の確認を得てから走らせ、出力は集計の数字だけにする
-- 仕組みでも止めている: .claude/settings.json の permissions.deny（確かめた結果は NOTES.md の「環境」）
+- 仕組みでも止めている: .claude/settings.json の permissions.deny（確かめた結果は NOTES.md の「環境」）。この仕組みは D:\AI_git\Project_Zuikoh を作業フォルダにして始めたセッションにしか効かない。ほかのフォルダから作業するときは、約束だけが頼り
 - 迷ったら送らない側に倒して、持ち主に聞く
 
 ## 扱いに気をつける場所と物
