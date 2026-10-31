@@ -26,6 +26,8 @@ NAMES = {"scr": "明るさの強さだけ", "feat": "手で作った特徴", "cn
 
 def main():
     recs = [json.loads(x) for x in open(os.path.join(ROOT, "results", "exp02.txt"), encoding="utf-8")]
+    # 同じ (条件, 分け方, seed) が 2 回あるとき（CPU で途中まで回した分と GPU で回し直した分）は、新しいほうだけを使う
+    recs = list({(r["model"], r["split"], r["seed"]): r for r in recs}.values())
     D = torch.load(data_dir() / "processed" / "cr_chips" / "chips.pt", weights_only=False)
     fig = plt.figure(figsize=(15, 8))
     gs = fig.add_gridspec(3, 6, height_ratios=[1, 1, 1.6])

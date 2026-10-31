@@ -76,6 +76,25 @@ def subband(X, K, rng):
     return out / (out.abs().amax((-2, -1), keepdim=True) + 1e-12)
 
 
+def recenter(X):
+    """切り出しごとに、周波数の中心（スペクトルの重心）を 0 に戻す = 位相の傾きを取り除く（TOPS の deramp の簡単な代わり）。
+
+    Sentinel-1 の IW の SLC は、進行方向の周波数の中心が場所によって動く（位相が場所に比例して回る）。
+    光の場で言えば「斜めから照らしている」のと同じで、レンズの後の像が横にずれる。Sin の板の窓の読み方は
+    これに弱いはず（実験02 の考察）。重心は円の上の平均（e^{i2πk/N} の平均の向き）で求める。
+    """
+    n, H, W = X.shape
+    P = torch.fft.fft2(X).abs() ** 2
+    ky = torch.exp(2j * math.pi * torch.arange(H) / H)
+    kx = torch.exp(2j * math.pi * torch.arange(W) / W)
+    cy = torch.angle((P.sum(2) * ky).sum(1)) / (2 * math.pi) * H        # 進行方向の周波数の重心（周波数の番号）
+    cx = torch.angle((P.sum(1) * kx).sum(1)) / (2 * math.pi) * W        # 距離の向き
+    yy = torch.arange(H)[None, :, None].float()
+    xx = torch.arange(W)[None, None, :].float()
+    ramp = torch.polar(torch.ones(n, H, W), -2 * math.pi * (cy[:, None, None] * yy / H + cx[:, None, None] * xx / W))
+    return X * ramp
+
+
 def lowpass(X, n):
     """分解能を 1/n に落とす（周波数の側で、真ん中の 1/n の帯域だけ残す。格子の大きさは変えない）。10 m 相当の粗い画像の代わり。"""
     if n <= 1:
@@ -180,6 +199,7 @@ def main():
     ap.add_argument("--patches", type=int, default=8)
     ap.add_argument("--steps", type=int, default=3000)
     ap.add_argument("--mask", type=float, default=0, help="実験03（持ち主の問い 2）: 真ん中の半径（距離の向きの画素）を隠し、周りだけで当てる。ずらしはしない")
+    ap.add_argument("--recenter", action="store_true", help="切り出しごとに位相の傾きを取り除く（実験02 の考察の確かめ）")
     ap.add_argument("--lowpass", type=int, default=1, help="分解能を 1/n に落とす（10 m 相当の粗い画像の代わり）")
     ap.add_argument("--subbands", type=int, default=0, help="0 なら水増しなし。K なら距離の向きの帯域を K 個に分けて水増し（持ち主の案）")
     ap.add_argument("--seed", type=int, default=0)
@@ -189,6 +209,8 @@ def main():
     torch.manual_seed(a.seed)
     torch.set_num_threads(4)
     Xtr, ytr, Xte, yte, str_, ste = load(a.split, a.seed)
+    if a.recenter:
+        Xtr, Xte = recenter(Xtr), recenter(Xte)
     Xtr, Xte = lowpass(Xtr, a.lowpass), lowpass(Xte, a.lowpass)
     jitter = a.mask <= 0                                    # 隠すときは、反射板が真ん中にあるようにずらさない
     rng = torch.Generator().manual_seed(a.seed)
