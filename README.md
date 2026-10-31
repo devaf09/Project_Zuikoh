@@ -1,6 +1,6 @@
 # Project Zuikoh — レーダ衛星と光の板で、世界の変化と動きを見る
 
-> **開発中です（骨組みの段階、まだ部品はありません）。** いまは使えるデータの調査と、最初の到達点の設計をしています。
+> **開発中です（M0: 道具とデータの確認の途中）。** 衛星データの取り込みと地図への重ね合わせまでできました。学習する部品はまだありません。
 
 合成開口レーダ（SAR）・衛星写真・公開されている運行データ（船など）から、建物の変化、遺跡の捜索、船や電車の運行などを**時系列で見えるようにする**システムを作るプロジェクトです。
 最終的には、地図の上の表示と、機械が読めるデータの形で、人の判断や AI の研究に使えるようにします。
@@ -14,6 +14,10 @@ flowchart LR
   E --> F[世界地図に表示<br>機械が読める形で配布]
 ```
 
+![クッシング（オクラホマ州）の Sentinel-1 の画像と、OpenStreetMap のタンクの輪郭](docs/images/m0_cushing_sample.png)
+
+*クッシングの石油タンクの地帯（10 km 四方）。明るい点がタンク。Contains modified Copernicus Sentinel data 2026（Microsoft Planetary Computer、CC BY 4.0）、タンクの輪郭 © OpenStreetMap contributors（ODbL）。*
+
 ## これは何？
 
 - **SAR（合成開口レーダ）** は、衛星から電波を当てて、戻ってきた電波で地面を写す仕組みです。雲があっても夜でも写ります。
@@ -26,18 +30,29 @@ flowchart LR
 
 | 到達点 | 中身 | 状況 |
 |---|---|---|
-| M0 | 道具とデータの確認、小さな見本を地図に表示 | 調査中（[データの出どころ](docs/data_sources.md)、[先行研究](docs/prior_art.md)） |
-| M1 | 同じ形の物（石油タンクなど）で、板の反応を定番の検出（CFAR）・小さな CNN と比べる | 設計中（[設計の提案](docs/design_m0_m1.md)） |
+| M0 | 道具とデータの確認、小さな見本を地図に表示 | ほぼ済み（[データの出どころ](docs/data_sources.md)、[先行研究](docs/prior_art.md)、[ライブラリ](docs/library_check.md)、実験00） |
+| M1 | 浮き屋根の石油タンク（オクラホマ州クッシング）で、板の反応を定番の検出（CFAR）・小さな CNN と比べる | 設計済み（[設計](docs/design_m0_m1.md)、[10 m より細かく見る案](docs/design_subpixel.md)） |
 | M2 | 衛星写真と SAR を一緒に学ぶ（トウモロコシ畑の季節の時系列） | 未着手 |
 | M3 | 変化から「知らない成分」を取り出して連番で登録 | 未着手 |
 | M4 | 登録と単離の繰り返し、船・電車へ | 未着手 |
 | M5 | 地図の表示と、受け渡しの形を整える | 未着手 |
 
+## いちばん簡単な使い方（いまできること）
+
+```bash
+python -m venv --system-site-packages .venv
+.venv/Scripts/python -m pip install rasterio pyproj shapely pystac-client planetary-computer requests
+cp config.example.toml config.local.toml        # data_dir をデータの置き場に
+.venv/Scripts/python tools/fetch_s1_rtc.py --region cushing --lon -96.755 --lat 35.955 --half-km 5 --start 2026-10-01 --end 2026-10-31
+.venv/Scripts/python tools/fetch_osm_tanks.py --region cushing --lon -96.755 --lat 35.955 --half-km 5
+.venv/Scripts/python tools/map_sample.py --region cushing   # ブラウザで開ける地図（データの置き場の processed/maps/）
+```
+
 ## フォルダの構成
 
 | 場所 | 中身 |
 |---|---|
-| `zuikoh/` | データの取り込み・地図・台帳などの部品（いまは設定の読み込みだけ） |
+| `zuikoh/` | データの取り込み・地図・台帳などの部品（いまは設定の読み込み config と、座標の計算 geo） |
 | `vendor/` | 別のリポジトリから版番号つきで写したコード（SinWave2D 0.3.0、SN2-Parts-2D 0.11.0。出典は vendor/README.md） |
 | `experiments/`, `experiments/sweeps/` | 実験のプログラムと、そのまま再実行できる条件の一覧 |
 | `results/` | 結果（1 回の実行 = 1 行の JSON） |
