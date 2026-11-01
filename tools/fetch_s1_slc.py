@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--max", type=int, default=1)
     ap.add_argument("--cr-csv", help="点の代わりに、この CSV（lat・lon の列）の全部の点を含む場面を探す（角の反射板の一覧など）")
     ap.add_argument("--path", type=int, help="この軌道の番号（相対軌道）の場面だけ")
+    ap.add_argument("--frame", type=int, help="この枠の番号（frameNumber）の場面だけ（同じ軌道で 2 か所を 1 場面に収めたいとき）")
     a = ap.parse_args()
 
     if a.cr_csv:                                              # 一覧の点ごとに探して、場面を重ならないように集める
@@ -91,7 +92,7 @@ def main():
     for lon, lat in pts:
         for r in asf.search(platform=asf.PLATFORM.SENTINEL1, processingLevel="SLC", intersectsWith=f"POINT({lon} {lat})",
                             start=a.start, end=a.end, maxResults=100):
-            if a.path is None or int(r.properties["pathNumber"]) == a.path:
+            if (a.path is None or int(r.properties["pathNumber"]) == a.path) and (a.frame is None or int(r.properties["frameNumber"]) == a.frame):
                 found[r.properties["sceneName"]] = r
     res = sorted(found.values(), key=lambda r: r.properties["startTime"], reverse=True)[:a.max]
     gb = sum(float(r.properties["bytes"]) for r in res) / 1e9
