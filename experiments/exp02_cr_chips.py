@@ -43,10 +43,10 @@ L = 32
 TEST_CR = ["N02K", "N05K", "N09K", "N12K", "N16K"]   # テストに回す反射板（訓練では見ない）
 
 
-def load(split, seed):
-    """切り出しを読み、訓練とテストに分ける。"""
-    D = torch.load(data_dir() / "processed" / "cr_chips" / "chips.pt", weights_only=False)
-    X, y = D["X"], D["y"]
+def load(split, seed, data="chips"):
+    """切り出しを読み、訓練とテストに分ける。data = "chips"（1 日付の SLC）か "ifg_chips"（2 日付の干渉データ、実験04）。"""
+    D = torch.load(data_dir() / "processed" / "cr_chips" / f"{data}.pt", weights_only=False)
+    X, y = D["X"].to(torch.complex64), D["y"]             # 干渉データは倍精度で保存されているので、単精度にそろえる
     if split == "cr":
         te = torch.tensor([c in TEST_CR for c in D["cr"]])
     else:
@@ -195,6 +195,10 @@ def main():
     ap = argparse.ArgumentParser(description="実験02: 角の反射板を見分ける")
     ap.add_argument("--model", required=True, choices=["sin", "sin_amp", "cnn", "cnn_amp", "feat", "scr"])
     ap.add_argument("--split", default="cr", choices=["cr", "date"])
+    ap.add_argument("--data", default="chips", choices=["chips", "ifg_chips"],
+                    help="ifg_chips = 2 日付の干渉データ（A·conj(B)）の切り出し（実験04、持ち主の方針: データどうしの相関だけ）")
+    ap.add_argument("--sqrt-amp", action="store_true",
+                    help="干渉データの振幅を平方根にする（|A||B| → √(|A||B|)。明るさの幅を 1 日付と同じにそろえ、位相はそのまま）")
     ap.add_argument("--plates", type=int, default=8)
     ap.add_argument("--patches", type=int, default=8)
     ap.add_argument("--steps", type=int, default=3000)
@@ -208,7 +212,10 @@ def main():
     a = ap.parse_args()
     torch.manual_seed(a.seed)
     torch.set_num_threads(4)
-    Xtr, ytr, Xte, yte, str_, ste = load(a.split, a.seed)
+    Xtr, ytr, Xte, yte, str_, ste = load(a.split, a.seed, a.data)
+    if a.sqrt_amp:                                          # 掛け算で明るさの幅が 2 乗になる（尾が −21 → −42 dB）のを元に戻す
+        Xtr = torch.polar(Xtr.abs().sqrt(), Xtr.angle())
+        Xte = torch.polar(Xte.abs().sqrt(), Xte.angle())
     if a.recenter:
         Xtr, Xte = recenter(Xtr), recenter(Xte)
     Xtr, Xte = lowpass(Xtr, a.lowpass), lowpass(Xte, a.lowpass)
@@ -259,7 +266,7 @@ def main():
         with torch.no_grad():
             pred = torch.cat([net(to_input(a.model, prep(crop(Xte[i:i + 512]), a)).to(a.device)).argmax(1).cpu()
                               for i in range(0, len(Xte), 512)])
-    rec = dict(vars(a), exp="03" if (a.mask > 0 or a.lowpass > 1) else "02", params=int(params), train_s=round(time.time() - t0, 1),
+    rec = dict(vars(a), exp="04" if a.data == "ifg_chips" else ("03" if (a.mask > 0 or a.lowpass > 1) else "02"), params=int(params), train_s=round(time.time() - t0, 1),
                n_train=len(ytr), n_test=len(yte), test_cr=TEST_CR if a.split == "cr" else None,
                version="vendor sn2_parts_2d 0.11.0", torch=torch.__version__, region="oklahoma", **report(pred, yte))
     with open(a.out, "a", encoding="utf-8") as f:
