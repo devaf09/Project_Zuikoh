@@ -58,13 +58,15 @@ def main():
             ax.set_title(f"{title} {D['cr'][i]}\n{D['date'][i][4:8]}→{D['date'][i][13:17]}", fontsize=8)
             k += 1
     s1, s2 = stats(os.path.join(ROOT, "results", "exp02.txt")), stats(os.path.join(ROOT, "results", "exp04.txt"))
+    s3 = stats(os.path.join(ROOT, "results", "exp04s.txt"))   # 干渉データの振幅を平方根に（sweep04s.sh）
     for j, (key, idx) in enumerate([("正解率（3 種類）", 0), ("反射板の適合率（反射板と答えたうち本物の割合）", 2)]):
         ax = fig.add_subplot(gs[1, 3 * j:3 * j + 3])
         x = np.arange(len(NAMES))
-        for o, (st, lab, col) in enumerate([(s1, "1 日付の SLC（実験02）", "#7570b3"), (s2, "2 日付の干渉データ（実験04）", "#d95f02")]):
+        for o, (st, lab, col) in enumerate([(s1, "1 日付の SLC（実験02）", "#7570b3"), (s2, "2 日付の干渉データ（実験04）", "#d95f02"),
+                                            (s3, "干渉データ・振幅を平方根に", "#1b9e77")]):
             mu = [st[m][0][idx] if m in st else np.nan for m in NAMES]
             se = [st[m][1][idx] if m in st else 0 for m in NAMES]
-            ax.bar(x + (o - 0.5) * 0.38, mu, 0.38, yerr=se, capsize=3, color=col, label=lab)
+            ax.bar(x + (o - 1) * 0.27, mu, 0.27, yerr=se, capsize=3, color=col, label=lab)
         ax.set_xticks(x, list(NAMES.values()), rotation=15, fontsize=8)
         ax.set_ylim(0, 105)
         ax.set_ylabel("%（テスト、3 seed の平均 ± 標準誤差）")
