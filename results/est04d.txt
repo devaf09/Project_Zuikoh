@@ -1,0 +1,1 @@
+{"exp": "est04d", "airport": "bkk", "n_dates": 24, "n_stands": 190, "n_control": 300, "radius_m": 20.0, "top": 0.05, "stand_frac_median": 0.001, "control_frac_median": 0.0, "control_p95_median": 0.136, "occupied_rate_median": 0.0, "frac_stands_ever_occupied": 0.426, "frac_stands_mixed": 0.426}
