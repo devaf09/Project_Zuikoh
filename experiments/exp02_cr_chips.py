@@ -10,6 +10,7 @@
     条件（--model）:
       sin      Sin の板の光路（vendor の SN2-Parts-2D 0.11.0 の Net2D）。複素数の切り出しをそのまま光の場として入れる
       sin_amp  同じ光路に、振幅だけ（位相を捨てる）を入れる（位相が効いているかを見る）
+      fuse     2 本の光路（振幅の光路 + 複素数の光路）の明るさを足す（実験05）
       cnn      小さな CNN（実部・虚部の 2 チャネル）。学習する数を sin にそろえる
       cnn_amp  小さな CNN（振幅だけ）
       feat     手で作った特徴（明るい順の上位 10 画素の明るさ・平均）のロジスティック回帰（学習が軽い定番）
@@ -162,9 +163,25 @@ def prep(z, a):
     return m / (m.abs().amax((-2, -1), keepdim=True) + 1e-12)
 
 
+class FuseSin(nn.Module):
+    """2 本の光路の融合（SN2-Parts-2D の並列光路の形。実験05、持ち主の了承 2026-11-01）。
+
+    光路 a には振幅だけ（位相を捨てる = ほかの明るい点と背景を見分ける）、光路 b には複素数のまま（干渉の位相 = 動かない点を見分ける）を通し、
+    窓の明るさ（スコア）を足す。2 本は一緒に学習する。
+    """
+
+    def __init__(self, plates, patches, seed):
+        super().__init__()
+        self.a = p2.Net2D(L, 3, plates=("stripes",) * plates, patches=patches, z=32.0, seed=seed, window=3)
+        self.b = p2.Net2D(L, 3, plates=("stripes",) * plates, patches=patches, z=32.0, seed=seed + 1000, window=3)
+
+    def forward(self, z):
+        return self.a(z.abs().to(torch.complex64)) + self.b(z)
+
+
 def to_input(model, z):
     """複素数の切り出し (N, 32, 32) → 各モデルの入力。"""
-    if model == "sin":
+    if model in ("sin", "fuse"):
         return z
     if model == "sin_amp":
         return z.abs().to(torch.complex64)
@@ -193,7 +210,7 @@ def report(pred, yt):
 
 def main():
     ap = argparse.ArgumentParser(description="実験02: 角の反射板を見分ける")
-    ap.add_argument("--model", required=True, choices=["sin", "sin_amp", "cnn", "cnn_amp", "feat", "scr"])
+    ap.add_argument("--model", required=True, choices=["sin", "sin_amp", "cnn", "cnn_amp", "feat", "scr", "fuse"])
     ap.add_argument("--split", default="cr", choices=["cr", "date"])
     ap.add_argument("--data", default="chips", choices=["chips", "ifg_chips"],
                     help="ifg_chips = 2 日付の干渉データ（A·conj(B)）の切り出し（実験04、持ち主の方針: データどうしの相関だけ）")
@@ -244,7 +261,9 @@ def main():
         pred = lin((f_te - mu) / sd).argmax(1)
         params = sum(p.numel() for p in lin.parameters())
     else:
-        if a.model.startswith("sin"):
+        if a.model == "fuse":
+            net = FuseSin(a.plates, a.patches, a.seed)
+        elif a.model.startswith("sin"):
             net = p2.Net2D(L, 3, plates=("stripes",) * a.plates, patches=a.patches, z=32.0, seed=a.seed, window=3)
         else:
             net = SmallCNN(2 if a.model == "cnn" else 1, 12)
