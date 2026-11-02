@@ -1,0 +1,1 @@
+{"exp": "est05", "scene_new": "IMG-HH-ALOS2657822920-260729-UBSL1.1__D", "scene_old": "IMG-HH-ALOS2461172920-221207-UBSL1.1__D", "window": [4624, 7024, 18640, 21040], "shift_coarse": [48, -180], "shift_fine": [-0.85, 0.07], "coherence_median": 0.198, "coherence_p90": 0.431, "frac_coherence_gt_05": 0.07}
