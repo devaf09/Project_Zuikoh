@@ -52,6 +52,25 @@ def find_window(z, hr=260, hc=1600):
     return None
 
 
+def limited_shift(a, b, max_r, max_c):
+    """a に対する b のずれ（行, 列）を、相関の山を ±max_r 行・±max_c 列の中だけで探して返す（遠くの偽の山を拾わないため）。
+
+    2026-11-02: 最初の版は全体から山を探し、地図と SLC のずれを 行 −126・列 −1264 と大きく誤った（図で確かめて分かった）。
+    戻り値は「b の中の位置 = a の中の位置 + (行, 列)」の向き（subpixel_shift と同じ。符号は作り物で確かめた）。
+    """
+    A, B = np.fft.fft2(a - a.mean()), np.fft.fft2(b - b.mean())
+    cc = np.real(np.fft.ifft2(A * np.conj(B)))
+    H, W = cc.shape
+    rows = np.r_[0:max_r + 1, H - max_r:H]
+    cols = np.r_[0:max_c + 1, W - max_c:W]
+    sub = cc[np.ix_(rows, cols)]
+    i, j = np.unravel_index(np.argmax(sub), sub.shape)
+    k0, k1 = rows[i], cols[j]
+    s0 = k0 if k0 <= H // 2 else k0 - H
+    s1 = k1 if k1 <= W // 2 else k1 - W
+    return -float(s0), -float(s1), float(sub.max() / (cc.std() + 1e-12))
+
+
 def osm_points(feats, kinds, step_m=10.0):
     """OSM の地物を、種類ごとに経度・緯度の点の列にする（線・面は step_m おきに点を並べる）。"""
     out = {k: [] for k in kinds}
@@ -103,9 +122,10 @@ def main():
         sim[ok] = img[row[ok].astype(int), col[ok].astype(int)]
     sim = sim.reshape(rr.shape)
     amp = ndimage.uniform_filter(np.abs(A0) ** 2, (1, 4))[:, ::4][:, :sim.shape[1]]
-    dr, dc4 = subpixel_shift(np.log1p(sim * 1e3), np.log1p(amp))
-    gcp_shift = (float(dr), float(dc4) * 4)                   # 地図の位置 + これ = SLC の画素
-    print(f"地図と SLC のずれ: 行 {gcp_shift[0]:+.1f}・列 {gcp_shift[1]:+.1f}")
+    # 地図（RTC）と SLC の明るさの相関の山を、近く（±60 行・±100 列 × 4 画素）だけで探す
+    dr, dc4, strength = limited_shift(np.log1p(sim * 1e3), np.log1p(amp), 60, 100)
+    gcp_shift = (dr, dc4 * 4)                                 # 地図の位置（GCP で求めた行・列）+ これ = SLC の画素
+    print(f"地図と SLC のずれ: 行 {gcp_shift[0]:+.1f}・列 {gcp_shift[1]:+.1f}（相関の山の強さ {strength:.1f}）")
     # 2. ほかの日付を重ねる
     stack, dates = [A0], [zips[0].name[17:25]]
     for z in zips[1:]:
