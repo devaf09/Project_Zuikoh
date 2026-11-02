@@ -1,0 +1,4 @@
+{"exp": "est06b", "site": "roswell", "pair": "20260920-20261002", "n_aircraft": 63, "n_other": 999, "coherence_aircraft": 0.328, "coherence_other": 0.289, "auc_aircraft_high": 0.63}
+{"exp": "est06b", "site": "roswell", "pair": "20261002-20261014", "n_aircraft": 63, "n_other": 999, "coherence_aircraft": 0.391, "coherence_other": 0.342, "auc_aircraft_high": 0.645}
+{"exp": "est06b", "site": "roswell", "pair": "20261014-20261026", "n_aircraft": 63, "n_other": 999, "coherence_aircraft": 0.348, "coherence_other": 0.321, "auc_aircraft_high": 0.621}
+{"exp": "est06b", "site": "roswell", "summary": true, "dates": ["20260920", "20261002", "20261014", "20261026"], "shift": [0.5, -25.6], "auc_mean_over_pairs": 0.632, "auc_of_mean": 0.649}
