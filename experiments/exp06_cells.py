@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -50,16 +51,16 @@ def auc(score, pos):
 def features(X):
     """手で作った特徴: VV・VH の平均・ばらつき・上位 10%・−5 dB より明るい画素の割合。"""
     f = []
-    for c in range(2):
+    for c in range(X.shape[1]):
         v = X[:, c].flatten(1)
         f += [v.mean(1), v.std(1), v.quantile(0.9, dim=1), (v > -5).float().mean(1)]
     return torch.stack(f, 1)
 
 
 class SmallCNN(nn.Module):
-    def __init__(self, width=16):
+    def __init__(self, ch=2, width=16):
         super().__init__()
-        self.c1 = nn.Conv2d(2, width, 3, padding=1)
+        self.c1 = nn.Conv2d(ch, width, 3, padding=1)
         self.c2 = nn.Conv2d(width, width, 3, padding=1)
         self.fc = nn.Linear(width, 3)
 
@@ -70,19 +71,29 @@ class SmallCNN(nn.Module):
 
 
 def to_field(X):
-    """VV の dB → 振幅（いちばん明るい画素で割る）→ 32 × 32 の場の真ん中に置く（光の場）。"""
-    a = 10 ** (X[:, 0] / 20)
-    a = a / (a.amax((-2, -1), keepdim=True) + 1e-12)
+    """VV の dB → 光の振幅 → 32 × 32 の場の真ん中に置く（光の場）。
+
+    2026-11-02: 格子ごとに最も明るい画素で割るのをやめ、dB を −25〜+5 dB の範囲で 0〜1 に置き直した値を振幅にする
+    （割ると明るさの強さの情報が消え、実験06 の最初の版で Sin の板が偶然以下になった）。
+    --temporal のときは、日付どうしのばらつき（3 つ目のチャネル）を位相として載せる（0〜6 dB → 0〜π）。
+    """
+    a = ((X[:, 0] + 25) / 30).clamp(0, 1)
+    if X.shape[1] > 2:
+        a = torch.polar(a, (X[:, 2] / 6).clamp(0, 1) * math.pi)
     o = (L - a.shape[-1]) // 2
-    f = torch.zeros(len(a), L, L)
-    f[:, o:o + a.shape[-2], o:o + a.shape[-1]] = a
-    return f.to(torch.complex64)
+    f = torch.zeros(len(a), L, L, dtype=torch.complex64)
+    f[:, o:o + a.shape[-2], o:o + a.shape[-1]] = a.to(torch.complex64)
+    return f
 
 
 def main():
     ap = argparse.ArgumentParser(description="実験06: 格子ごとの飛行機・車の成分")
     ap.add_argument("--model", required=True, choices=["feat", "cnn", "sin_amp"])
     ap.add_argument("--steps", type=int, default=3000)
+    ap.add_argument("--test-site", default="victorville", choices=["victorville", "roswell"],
+                    help="飛行機の試験に使う、訓練で見ない場所（もう一方は訓練に使う）")
+    ap.add_argument("--temporal", action="store_true",
+                    help="同じ格子の全日付の VV の画素ごとのばらつき（dB の標準偏差）を 3 つ目のチャネルに足す（日付どうしの変化、持ち主の「変わった所」）")
     ap.add_argument("--plates", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")
@@ -94,7 +105,16 @@ def main():
     X, y = D["X"], D["y"]
     lb_dates = sorted({d for d, s in zip(D["date"], D["site"]) if s == "longbeach_cars"})
     lb_test = set(lb_dates[-3:])
-    te = torch.tensor([s == "victorville" or (s == "longbeach_cars" and d in lb_test) for s, d in zip(D["site"], D["date"])])
+    if a.temporal:                                            # 同じ場所・同じ格子の全日付から、画素ごとの VV のばらつきを作って足す
+        key = [(s, int(x), int(y)) for s, x, y in zip(D["site"], D["cx"], D["cy"])]
+        groups = {}
+        for i, k in enumerate(key):
+            groups.setdefault(k, []).append(i)
+        T = torch.zeros(len(X), 1, X.shape[-2], X.shape[-1])
+        for idx in groups.values():
+            T[idx] = X[idx, 0].std(0, unbiased=False)[None, None] if len(idx) > 1 else 0.0
+        X = torch.cat([X, T], 1)
+    te = torch.tensor([s == a.test_site or (s == "longbeach_cars" and d in lb_test) for s, d in zip(D["site"], D["date"])])
     Xtr, ytr, Xte, yte = X[~te], y[~te], X[te], y[te]
     mu = Xtr.mean((0, 2, 3), keepdim=True)
     sd = Xtr.std((0, 2, 3), keepdim=True)
@@ -115,7 +135,7 @@ def main():
         with torch.no_grad():
             prob = F.softmax(net((fte - m_) / s_), 1)
     else:
-        net = SmallCNN() if a.model == "cnn" else p2.Net2D(L, 3, plates=("stripes",) * a.plates, patches=8, z=32.0, seed=a.seed, window=3)
+        net = SmallCNN(X.shape[1]) if a.model == "cnn" else p2.Net2D(L, 3, plates=("stripes",) * a.plates, patches=8, z=32.0, seed=a.seed, window=3)
         net = net.to(a.device)
         opt = torch.optim.Adam([p for p in net.parameters() if p.requires_grad], lr=0.01)
         sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.steps)
@@ -136,20 +156,20 @@ def main():
             prob = torch.cat([F.softmax(net(prep(Xte[i:i + 1024]).to(a.device)), 1).cpu() for i in range(0, len(Xte), 1024)])
     params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     site_te = np.array([s for s, t in zip(D["site"], te.tolist()) if t])
-    v = site_te == "victorville"
+    v = site_te == a.test_site
     lbm = site_te == "longbeach_cars"
     yt = yte.numpy()
     pr = prob.numpy()
     rec = dict(vars(a), exp="06", params=int(params), train_s=round(time.time() - t0, 1), torch=torch.__version__,
-               version="vendor sn2_parts_2d 0.11.0", region="roswell+longbeach_cars → victorville",
+               version="vendor sn2_parts_2d 0.11.0", region=f"{'roswell' if a.test_site == 'victorville' else 'victorville'}+longbeach_cars → {a.test_site}",
                n_train=int(len(ytr)), n_test_vcv=int(v.sum()), n_test_lb=int(lbm.sum()),
                auc_aircraft_vcv=round(auc(pr[v, 2], yt[v] == 2), 4), auc_car_lb=round(auc(pr[lbm, 1], yt[lbm] == 1), 4),
                aircraft_prob_mean_pos_vcv=round(float(pr[v & (yt == 2), 2].mean()), 3), aircraft_prob_mean_neg_vcv=round(float(pr[v & (yt != 2), 2].mean()), 3))
     with open(a.out, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     torch.save(dict(prob=prob, site=site_te.tolist(), y=yte, cx=D["cx"][te], cy=D["cy"][te],
-                    date=[d for d, t in zip(D["date"], te.tolist()) if t]), data_dir() / "cache" / f"exp06_{a.model}_{a.seed}.pt")
-    print(json.dumps({k: rec[k] for k in ["model", "seed", "params", "train_s", "auc_aircraft_vcv", "auc_car_lb",
+                    date=[d for d, t in zip(D["date"], te.tolist()) if t]), data_dir() / "cache" / f"exp06_{a.model}_{a.test_site}_{'t' if a.temporal else 'n'}_{a.seed}.pt")
+    print(json.dumps({k: rec[k] for k in ["model", "test_site", "temporal", "seed", "params", "train_s", "auc_aircraft_vcv", "auc_car_lb",
                                          "aircraft_prob_mean_pos_vcv", "aircraft_prob_mean_neg_vcv"]}, ensure_ascii=False))
 
 
